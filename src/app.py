@@ -103,30 +103,33 @@ def create_candlestickchart(hist, selected_dropdown_value):
         xaxis_rangeslider_visible=False,
      
     )
-#     Adding 10 day simple moving average
     fig.add_trace(
-        go.Line(x = hist.index, y = hist[f'10_ma'], name = f'10 SMA'), 
-    row=1,
-    col=1
+        go.Scatter(x=hist.index, y=hist[f'10_ma'], mode='lines', name='10 SMA'), 
+        row=1,
+        col=1
     )
-   # Adding 20 day simple moving average 
+
+    # Adding 20 day simple moving average 
     fig.add_trace(
-        go.Line(x = hist.index, y = hist[f'20_ma'], name = f'20 SMA'),
-    row=1,
-    col=1
+        go.Scatter(x=hist.index, y=hist[f'20_ma'], mode='lines', name='20 SMA'),
+        row=1,
+        col=1
     )
-    #     Adding 10 day simple moving average
+
+    # Adding 100 day simple moving average
     fig.add_trace(
-        go.Line(x = hist.index, y = hist[f'100_ma'], name = f'100 SMA'),
-    row=1,
-    col=1
+        go.Scatter(x=hist.index, y=hist[f'100_ma'], mode='lines', name='100 SMA'),
+        row=1,
+        col=1
     )
-   # Adding 20 day simple moving average 
+
+    # Adding 200 day simple moving average 
     fig.add_trace(
-        go.Line(x = hist.index, y = hist[f'200_ma'], name = f'200 SMA'),
-    row=1,
-    col=1
+        go.Scatter(x=hist.index, y=hist[f'200_ma'], mode='lines', name='200 SMA'),
+        row=1,
+        col=1
     )
+
     #Adding Volume Chart
     fig.add_trace(
         go.Bar(x = hist.index, y = hist['Volume'], name = 'Volume', marker_color=['red' if close < open else 'green' for close, open in zip(hist['Close'], hist['Open'])], legendgroup = '2'), 

@@ -21,7 +21,7 @@ from dash import html
 
 load_figure_template("darkly")
 
-ticker_list = pd.read_csv('src/technology_stocks.csv')
+ticker_list = pd.read_csv('technology_stocks.csv')
 
 # def create_card(column,col_val, description):
 #     card = dbc.Card(

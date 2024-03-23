@@ -18,10 +18,21 @@ from prophet import Prophet
 from plotly.io import to_json
 from plotly.tools import mpl_to_plotly
 from dash import html
+import os
+
 
 load_figure_template("darkly")
 
-ticker_list = pd.read_csv('technology_stocks.csv')
+# Get the current directory of the script
+current_directory = os.path.dirname(os.path.abspath(__file__))
+
+# Construct the file path to the CSV file
+csv_file_path = os.path.join(current_directory, 'data', 'technology_stocks.csv')
+
+# Read the CSV file
+ticker_list = pd.read_csv(csv_file_path)
+
+# ticker_list = pd.read_csv('./data/technology_stocks.csv')
 
 # def create_card(column,col_val, description):
 #     card = dbc.Card(

@@ -19,18 +19,21 @@ from plotly.io import to_json
 from plotly.tools import mpl_to_plotly
 from dash import html
 import os
+import pathlib 
+
 
 
 load_figure_template("darkly")
 
-# Get the current directory of the script
-current_directory = os.path.dirname(os.path.abspath(__file__))
+
 
 # Construct the file path to the CSV file
-csv_file_path = os.path.join(current_directory, 'data', 'technology_stocks.csv')
+PATH = pathlib.Path(__file__).parent
+
+DATA_PATH = PATH.joinpath("data").resolve()
 
 # Read the CSV file
-ticker_list = pd.read_csv(csv_file_path)
+ticker_list = pd.read_csv(DATA_PATH.joinpath('technology_stocks.csv'))
 
 # ticker_list = pd.read_csv('./data/technology_stocks.csv')
 

@@ -20,12 +20,11 @@ from plotly.tools import mpl_to_plotly
 from dash import html
 import os
 import pathlib 
+import re
 
 
 
 load_figure_template("darkly")
-
-
 
 # Construct the file path to the CSV file
 PATH = pathlib.Path(__file__).parent
@@ -35,22 +34,10 @@ DATA_PATH = PATH.joinpath("data").resolve()
 # Read the CSV file
 ticker_list = pd.read_csv(DATA_PATH.joinpath('technology_stocks.csv'))
 
-# ticker_list = pd.read_csv('./data/technology_stocks.csv')
 
-# def create_card(column,col_val, description):
-#     card = dbc.Card(
-#         dbc.CardBody(
-#             [
-#                 html.H4(column, id="card-title"),
-#                 html.H2(col_val),
-#                 html.P(description, id="card-description")
-#             ]
-#         )
-#     )
-#     return card
-# Ticker = yf.Ticker('TSLA')
-# marketcap_card = create_card('Marketcap',Ticker.info['marketCap'], '')
-
+def create_card_info(title, content, button_color):
+    card_info = {"title": title, "content": content, "button_color": button_color}
+    return card_info
 
 
 def create_candlestickchart(hist, selected_dropdown_value):
@@ -177,7 +164,12 @@ def create_candlestickchart(hist, selected_dropdown_value):
     
     return fig
 
-    
+
+def format_dividend(dividend):
+    return round(dividend * 100, 2)
+
+
+   
 def format_marketcap(market_cap):
     if market_cap is not None:
         if market_cap >= 10**12:
@@ -213,22 +205,18 @@ app = dash.Dash(__name__,external_stylesheets=[dbc.themes.DARKLY],suppress_callb
 server = app.server
 # this code represents the layout of the dashboard
 app.layout = html.Div([
-#     dbc.Row([
-#         dbc.Col([marketcap_card]), dbc.Col([marketcap_card]), dbc.Col([marketcap_card]), dbc.Col([marketcap_card])
-#     ]),
-#     dbc.Row([
-#         dbc.Col([marketcap_card]), dbc.Col([marketcap_card]), dbc.Col([marketcap_card]), dbc.Col([marketcap_card])
-#     ]),
-    
     #title
     html.H1("Stock Market Alert System", style={'textAlign': 'center'}),
-    #trigger
-    dcc.Interval(id='trigger', interval=1000*30), # 30 seconds
-    #stock ticker dropdown menu
     html.P('Select Stock:', className = 'fix_label', style = {'color': 'white'}),
     dcc.Dropdown(id="my-dropdown", options=ticker_list['Ticker'], value='TSLA', clearable=False, style={'width': '50%','display': True}, className = 'dcc_compon'),
+    html.Div(id='card-group1'),
+    html.Div(id='card-group2'),
+    #trigger
+    dcc.Interval(id='trigger', interval=1000*30), # 30 seconds
     #placeholder for PE, marketcap, time
     html.Div(id='price-placeholder', children=[]),
+    # First row of cards
+    html.Div(id='card-container'),
     #number of days slider
     html.Div([
     daq.Slider(id='my-daq-slider-ex-1', min=0, max=1000, value=365, marks={i: str(i) for i in range(0, 1001, 100)}, handleLabel='#days'),
@@ -241,9 +229,6 @@ app.layout = html.Div([
         dcc.Graph(id='Earnings', style={'height': '1000px','width': '35%','display': 'inline-block'})
     ]),
     
-#      html.Div([
-#          dcc.Graph(id='My_Graph',  figure={},config={'editable': True}, style={'height': '500px','width': '60%','display': 'inline-block'})
-#      ]),
     
     #text and email alerts
     html.Div('Would you like to set up email or phone alerts for price changes?'),
@@ -254,25 +239,156 @@ app.layout = html.Div([
     dcc.Input(id='ticker-name', type='text', value='', style={'display': 'none'}),
     
     #second graph - intended for time series analysis
-    html.H1("Prediction Chart", style={'textAlign': 'center'}),
+    html.H1("Stock Forecasting", style={'textAlign': 'center'}),
     
     #prediction chart - forecasting with prophet model
     dcc.Graph(id='Prediction-Chart', config={'editable': True})
     # Hidden input for ticker name
 ], style={'width': '200'})
 
-@app.callback(Output('price-placeholder', 'children'),[Input('my-dropdown', 'value')],[Input('trigger', 'n_intervals')])
+@app.callback(
+    Output('card-group1', 'children'),
+    Output('card-group2', 'children'),
+    [Input('my-dropdown', 'value')])
 
-def trigger(selected_dropdown_value,_):
+
+def cards(selected_dropdown_value):
     Ticker = yf.Ticker(selected_dropdown_value)
-#     hist = Ticker.history(period="Max")
+    hist = Ticker.history(period="Max")
     current_price = round(Ticker.history(period="1d")["Close"].iloc[-1], 2)
     current_time = datetime.now().strftime("%H:%M:%S")
-    pe_ratio = round(Ticker.info['forwardPE'], 2)
-    market_cap = Ticker.info['marketCap']
+    close = float(hist['Close'].iloc[-1])
+    Open = float(hist['Open'].iloc[-1])
+    check_symbol = "\u2714"
+    x_symbol = "\u2716"
+    # avoiding key errors
+    if 'forwardPE' in Ticker.info.keys():
+        pe_ratio = round(Ticker.info['forwardPE'], 2)
+    else:
+        pe_ratio = 'None'
     
-    return html.Pre(f"Time: {current_time}\nStock Price: ${current_price}\nMarket Cap: {format_marketcap(market_cap)}\nP/E Ratio: {pe_ratio}")
+    if 'marketCap' in Ticker.info.keys():
+        market_cap = Ticker.info['marketCap']
+        market_cap = format_marketcap(market_cap)
+    else:
+        market_cap = 'None'
     
+    if 'fullTimeEmployees' in Ticker.info.keys():
+        company_size = Ticker.info['fullTimeEmployees']
+    else:
+        company_size = 'None'
+    
+    if 'longBusinessSummary' in Ticker.info.keys():
+        text = Ticker.info['longBusinessSummary']
+        digits = re.findall('\d*\.?\d+',text)
+        if digits:  # Check if digits list is not empty
+            year_founded = digits[0]
+        else:
+            year_founded = 'none'
+    else:
+        year_founded = 'none'
+    if 'companyOfficers' in Ticker.info.keys():
+        CEO = Ticker.info['companyOfficers'][0]['name']
+    else:
+        CEO = 'None'
+        
+        
+    if 'website' in Ticker.info.keys():
+        WEBPAGE = Ticker.info['website']
+    else: 
+        WEBPAGE = 'None'
+    
+    
+    
+    card1_info = create_card_info("Marketcap", market_cap, "success")
+    card2_info = create_card_info("Forward PE", pe_ratio, "warning")
+    card3_info = create_card_info("CEO",CEO,"danger")
+    card4_info = create_card_info("Current time", current_time, "danger")
+
+    group1 = dbc.CardGroup(
+        [
+            dbc.Card(
+                dbc.CardBody([
+                    html.H5(card1_info["title"], className="card-title"),
+                    html.P(card1_info["content"], className="card-text"),
+                    dbc.Button(check_symbol if close > Open else x_symbol, 
+                               color="success" if close > Open else "danger", 
+                               className="mt-auto"),
+                ])
+            ),
+            dbc.Card(
+                dbc.CardBody([
+                    html.H5(card2_info["title"], className="card-title"),
+                    html.P(card2_info["content"], className="card-text"),
+                    dbc.Button(check_symbol if pe_ratio < 20 and pe_ratio >= 0 else x_symbol, 
+                               color="success" if pe_ratio < 20 and pe_ratio >= 0 else 'danger', 
+                               className="mt-auto"),
+                ])
+            ),
+            dbc.Card(
+                dbc.CardBody([
+                    html.H5(card3_info["title"], className="card-title"),
+                    html.P(card3_info["content"], className="card-text"),
+#                     dbc.Button("Click here", color=card3_info["button_color"], className="mt-auto"),
+                ])
+            ),
+            dbc.Card(
+                dbc.CardBody([
+                    html.H5(card4_info["title"], className="card-title"),
+                    html.P(card4_info["content"], className="card-text"),
+#                     dbc.Button("Click here", color=card4_info["button_color"], className="mt-auto"),
+                ])
+            ),
+        ]
+    )
+    
+    
+    card5_info = create_card_info("Current Price", current_price, "success")
+    card6_info = create_card_info("Company Size", company_size, "success")
+    card7_info = create_card_info("Year founded", year_founded, "success")
+    card8_info = create_card_info("Website", WEBPAGE, "warning")
+    
+    
+    
+    group2 = dbc.CardGroup(
+        [
+            dbc.Card(
+                dbc.CardBody([
+                    html.H5(card5_info["title"], className="card-title"),
+                    html.P(card5_info["content"], className="card-text"),
+                    dbc.Button(check_symbol if close > Open else x_symbol, 
+                               color="success" if close > Open else "danger", 
+                               className="mt-auto"),
+                ])
+            ),
+            dbc.Card(
+                dbc.CardBody([
+                    html.H5(card6_info["title"], className="card-title"),
+                    html.P(card6_info["content"], className="card-text"),
+#                     dbc.Button("Click here", color=card6_info["button_color"], className="mt-auto"),
+                ])
+            ),
+            dbc.Card(
+                dbc.CardBody([
+                    html.H5(card7_info["title"], className="card-title"),
+                    html.P(card7_info["content"], className="card-text"),
+#                     dbc.Button(x_symbol, color=card7_info["button_color"], className="mt-auto"),
+                ])
+            ),
+            dbc.Card(
+                dbc.CardBody([
+                    html.H5(card8_info["title"], className="card-title"),
+                    html.P('', className="card-text"),
+                    dbc.Button(WEBPAGE, color=card8_info["button_color"], className="mt-auto", href=WEBPAGE),
+                ])
+            ),
+        ]
+    )
+    
+    
+    
+    return group1, group2
+
 
 
 @app.callback(Output('Candle_Graph', 'figure'),Output('slider-output-1', 'children'),Output('Prediction-Chart', 'figure'),Output('Earnings', 'figure'),
@@ -287,8 +403,10 @@ def graph(selected_dropdown_value,value,alert_permission, alert_value):
     
 
     current_price = round(Ticker.history(period="1d")["Close"].iloc[-1], 2)
-    pe_ratio = round(Ticker.info['forwardPE'], 2)
-    market_cap = Ticker.info['marketCap']
+#     pe_ratio = round(Ticker.info['forwardPE'], 2)
+#     market_cap = Ticker.info['marketCap']
+    
+    
     
     # Update x-axis range based on the slider value
     start_date = hist.index[-value]
@@ -378,65 +496,76 @@ def graph(selected_dropdown_value,value,alert_permission, alert_value):
     title_x=0.5,  # Set the title's horizontal position to the center
     title_y=0.95,  # Set the title's vertical position (optional)
     )
-    #adding in earnings
-    earnings = Ticker.earnings_dates
-    earnings.columns = ['Estimate','Reported','Surprise(%)']
-    earnings_plot = px.scatter(earnings, x=earnings.index, y='Estimate',hover_name='Estimate',title='Earnings')
-    # Update title alignment
-    earnings_plot.update_layout(title_x=0.5)
-    earnings_plot.add_scatter(x=earnings.index, y=earnings.Reported, mode="markers",name="Reported")
-    earnings_plot.add_scatter(x=earnings.index, y=earnings.Estimate, mode="markers",name="Estimate")
     
-    financial_plot.add_trace(
-        go.Scatter(x = earnings.index, y = earnings['Estimate'],mode='markers', name = 'Estimate'),
-        row = 1,
-        col = 1,
-    )
-    financial_plot.add_trace(
-    go.Scatter(x = earnings.index, y = earnings['Reported'],mode='markers', name = 'Reported'),
-        row = 1,
-        col = 1,
-    )
     
-    #adding in the balance sheet
-    balance_sheet = Ticker.balance_sheet
-    balance_sheet = balance_sheet.transpose().sort_index()
-    balance_sheet.columns = [x.replace(' ','_') for x in balance_sheet.columns]
-    balance_sheet = balance_sheet.reset_index()
-    balance_sheet['date'] = balance_sheet['index'].dt.strftime('%m-%y')
+    if Ticker.earnings_dates is not None:
+        #adding in earnings
+        earnings = Ticker.earnings_dates
+        earnings.columns = ['Estimate','Reported','Surprise(%)']
+        earnings_plot = px.scatter(earnings, x=earnings.index, y='Estimate',hover_name='Estimate',title='Earnings')
+        # Update title alignment
+        earnings_plot.update_layout(title_x=0.5)
+        earnings_plot.add_scatter(x=earnings.index, y=earnings.Reported, mode="markers",name="Reported")
+        earnings_plot.add_scatter(x=earnings.index, y=earnings.Estimate, mode="markers",name="Estimate")
+
+        financial_plot.add_trace(
+            go.Scatter(x = earnings.index, y = earnings['Estimate'],mode='markers', name = 'Estimate'),
+            row = 1,
+            col = 1,
+        )
+        financial_plot.add_trace(
+        go.Scatter(x = earnings.index, y = earnings['Reported'],mode='markers', name = 'Reported'),
+            row = 1,
+            col = 1,
+        )
+    else:
+        None
+    
+    if len(Ticker.balance_sheet) != 0:
+        #adding in the balance sheet
+        balance_sheet = Ticker.balance_sheet
+        balance_sheet = balance_sheet.transpose().sort_index()
+        balance_sheet.columns = [x.replace(' ','_') for x in balance_sheet.columns]
+        balance_sheet = balance_sheet.reset_index()
+        balance_sheet['date'] = balance_sheet['index'].dt.strftime('%m-%y')
+    else:
+        None
 
 
     #adding in revenue and net income
-    financial_data = Ticker.financials
-    financial_data = financial_data.transpose().sort_index()
-    financial_data = financial_data.reset_index()
-    financial_data[['Total Revenue','Net Income']]
-    financial_data['date'] = financial_data['index'].dt.strftime('%m-%y')
+    if len(Ticker.financials) != 0:
+        financial_data = Ticker.financials
+        financial_data = financial_data.transpose().sort_index()
+        financial_data = financial_data.reset_index()
+        financial_data[['Total Revenue','Net Income']]
+        financial_data['date'] = financial_data['index'].dt.strftime('%m-%y')
 
     
-    financial_plot.add_trace(
-            go.Bar(x = balance_sheet.date, y = balance_sheet['Total_Assets'], name = 'Total_Assets'),
-            row = 2,
-            col = 1,
-        )
-    financial_plot.add_trace(
-            go.Bar(x = balance_sheet.date, y = balance_sheet['Current_Liabilities'], name = 'Liabilities'),
-            row = 2,
-            col = 1,
-        )
-    financial_plot.add_trace(
-            go.Bar(x = financial_data.date, y = financial_data['Total Revenue'], name = 'Total Revenue'),
-            row = 3,
-            col = 1,
-        )
-    financial_plot.add_trace(
-            go.Bar(x = financial_data.date, y = financial_data['Net Income'], name = 'Net Income'),
-            row = 3,
-            col = 1,
-        )
-    financial_plot.update_yaxes(title_text="EPS", row=1, col=1)  
-    financial_plot.update_yaxes(title_text="Balance Sheet", row=2, col=1)  
-    financial_plot.update_yaxes(title_text="Income", row=3, col=1)  
+        financial_plot.add_trace(
+                go.Bar(x = balance_sheet.date, y = balance_sheet['Total_Assets'], name = 'Total_Assets'),
+                row = 2,
+                col = 1,
+            )
+        financial_plot.add_trace(
+                go.Bar(x = balance_sheet.date, y = balance_sheet['Current_Liabilities'], name = 'Liabilities'),
+                row = 2,
+                col = 1,
+            )
+        financial_plot.add_trace(
+                go.Bar(x = financial_data.date, y = financial_data['Total Revenue'], name = 'Total Revenue'),
+                row = 3,
+                col = 1,
+            )
+        financial_plot.add_trace(
+                go.Bar(x = financial_data.date, y = financial_data['Net Income'], name = 'Net Income'),
+                row = 3,
+                col = 1,
+            )
+        financial_plot.update_yaxes(title_text="EPS", row=1, col=1)  
+        financial_plot.update_yaxes(title_text="Balance Sheet", row=2, col=1)  
+        financial_plot.update_yaxes(title_text="Income", row=3, col=1)  
+    else:
+        None
     
     return candle_graph,f'\nDays to plot: {value}.',history_fig, financial_plot
 

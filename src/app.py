@@ -21,6 +21,8 @@ from dash import html
 import os
 import pathlib 
 import re
+from tradingview_ta import TA_Handler, Interval, Exchange
+import tradingview_ta
 
 
 
@@ -212,7 +214,7 @@ app.layout = html.Div([
     html.Div(id='card-group1'),
     html.Div(id='card-group2'),
     #trigger
-    dcc.Interval(id='trigger', interval=1000*30), # 30 seconds
+    dcc.Interval(id='trigger', interval=1000*5), # 5 seconds
     #placeholder for PE, marketcap, time
     html.Div(id='price-placeholder', children=[]),
     # First row of cards
@@ -239,28 +241,38 @@ app.layout = html.Div([
     dcc.Input(id='ticker-name', type='text', value='', style={'display': 'none'}),
     
     #second graph - intended for time series analysis
-    html.H1("Stock Forecasting", style={'textAlign': 'center'}),
+    html.H1("HedgieTrack: Navigating the Hedge Fund Landscape", style={'textAlign': 'center'}),
     
-    #prediction chart - forecasting with prophet model
-    dcc.Graph(id='Prediction-Chart', config={'editable': True})
     # Hidden input for ticker name
+    html.Div(id='target', style={'height': '1000px','width': '100%','display': 'inline-block'})
 ], style={'width': '200'})
+
+@app.callback(Output('target', 'children'), [Input('my-dropdown', 'value')])
+def embed_iframe(value):
+    
+    return html.Iframe(src=f'https://hedgefollow.com/stocks/{value}', width='100%', height='1000px')
+
 
 @app.callback(
     Output('card-group1', 'children'),
     Output('card-group2', 'children'),
-    [Input('my-dropdown', 'value')])
+    [Input('my-dropdown', 'value'),Input('trigger','n_intervals')])
 
 
-def cards(selected_dropdown_value):
+def cards(selected_dropdown_value,_):
     Ticker = yf.Ticker(selected_dropdown_value)
     hist = Ticker.history(period="Max")
     current_price = round(Ticker.history(period="1d")["Close"].iloc[-1], 2)
     current_time = datetime.now().strftime("%H:%M:%S")
     close = float(hist['Close'].iloc[-1])
+    close_2 = float(hist['Close'].iloc[-2])
     Open = float(hist['Open'].iloc[-1])
+    daily_change_percent = round(((close - close_2) / close_2)*100, 2)
+    daily_change = round((close - close_2), 2)
     check_symbol = "\u2714"
     x_symbol = "\u2716"
+    
+    
     # avoiding key errors
     if 'forwardPE' in Ticker.info.keys():
         pe_ratio = round(Ticker.info['forwardPE'], 2)
@@ -304,7 +316,8 @@ def cards(selected_dropdown_value):
     card2_info = create_card_info("Forward PE", pe_ratio, "warning")
     card3_info = create_card_info("CEO",CEO,"danger")
     card4_info = create_card_info("Current time", current_time, "danger")
-
+    card9_info = create_card_info("Daily Change(%)", f'{daily_change_percent}%', "danger")
+    
     group1 = dbc.CardGroup(
         [
             dbc.Card(
@@ -320,8 +333,8 @@ def cards(selected_dropdown_value):
                 dbc.CardBody([
                     html.H5(card2_info["title"], className="card-title"),
                     html.P(card2_info["content"], className="card-text"),
-                    dbc.Button(check_symbol if pe_ratio < 20 and pe_ratio >= 0 else x_symbol, 
-                               color="success" if pe_ratio < 20 and pe_ratio >= 0 else 'danger', 
+                    dbc.Button('None' if pe_ratio == 'None' else check_symbol if pe_ratio < 20 and pe_ratio >= 0 else x_symbol, 
+                               color='Blue' if pe_ratio == 'None' else "success" if pe_ratio < 20 and pe_ratio >= 0 else 'danger', 
                                className="mt-auto"),
                 ])
             ),
@@ -339,6 +352,13 @@ def cards(selected_dropdown_value):
 #                     dbc.Button("Click here", color=card4_info["button_color"], className="mt-auto"),
                 ])
             ),
+            dbc.Card(
+                dbc.CardBody([
+                    html.H5(card9_info["title"], className="card-title"),
+                    html.P(card9_info["content"], className="card-text", style={'color': 'green' if daily_change_percent > 0 else 'red' if daily_change_percent < 0 else 'blue'}),
+#                     dbc.Button("Click here", color=card4_info["button_color"], className="mt-auto"),
+                ])
+            ),
         ]
     )
     
@@ -347,7 +367,7 @@ def cards(selected_dropdown_value):
     card6_info = create_card_info("Company Size", company_size, "success")
     card7_info = create_card_info("Year founded", year_founded, "success")
     card8_info = create_card_info("Website", WEBPAGE, "warning")
-    
+    card10_info = create_card_info("Daily Change", daily_change, "warning")
     
     
     group2 = dbc.CardGroup(
@@ -382,6 +402,12 @@ def cards(selected_dropdown_value):
                     dbc.Button(WEBPAGE, color=card8_info["button_color"], className="mt-auto", href=WEBPAGE),
                 ])
             ),
+            dbc.Card(
+                dbc.CardBody([
+                    html.H5(card10_info["title"], className="card-title"),
+                    html.P(card10_info["content"], className="card-text", style={'color': 'green' if daily_change_percent > 0 else 'red' if daily_change_percent < 0 else 'blue'}),
+                ])
+            ),
         ]
     )
     
@@ -391,7 +417,7 @@ def cards(selected_dropdown_value):
 
 
 
-@app.callback(Output('Candle_Graph', 'figure'),Output('slider-output-1', 'children'),Output('Prediction-Chart', 'figure'),Output('Earnings', 'figure'),
+@app.callback(Output('Candle_Graph', 'figure'),Output('slider-output-1', 'children'),Output('Earnings', 'figure'),
               [Input('my-dropdown', 'value')],[Input('my-daq-slider-ex-1', 'value')],
               [State('alert-permission', 'value'),
                State('alert-value', 'value'),])
@@ -458,26 +484,26 @@ def graph(selected_dropdown_value,value,alert_permission, alert_value):
     histogram = MACD - signal
     
     
-    #model prediction
-    split_date = '2024-03-16'
-    stock_train = hist.loc[hist.index <= split_date].copy()
-    stock_test = hist.loc[hist.index > split_date].copy()
-    train_fig = px.line(stock_train, x=stock_train.index, y='High')  
-    test_fig = px.line(stock_test, x=stock_test.index, y='High') 
+#     #model prediction
+#     split_date = '2024-03-16'
+#     stock_train = hist.loc[hist.index <= split_date].copy()
+#     stock_test = hist.loc[hist.index > split_date].copy()
+#     train_fig = px.line(stock_train, x=stock_train.index, y='High')  
+#     test_fig = px.line(stock_test, x=stock_test.index, y='High') 
     
-    model = Prophet()
+#     model = Prophet()
     
     
-    stock_train_prophet = stock_train.reset_index().rename(columns = {'Date':'ds', 'High':'y'})
-    stock_train_prophet['ds'] = stock_train_prophet['ds'].dt.tz_localize(None)
+#     stock_train_prophet = stock_train.reset_index().rename(columns = {'Date':'ds', 'High':'y'})
+#     stock_train_prophet['ds'] = stock_train_prophet['ds'].dt.tz_localize(None)
     
-    stock_test_prophet = stock_test.reset_index().rename(columns = {'Date':'ds', 'High':'y'})
-    stock_test_prophet['ds'] = stock_test_prophet['ds'].dt.tz_localize(None)
-    model.fit(stock_train_prophet)
-#     forecast = model.predict(stock_test_prophet)
-    future = model.make_future_dataframe(periods=365*24, freq='h',include_history=False)
-    forecast = model.predict(future)
-    history_fig = px.line(forecast, x=forecast['ds'], y='yhat')
+#     stock_test_prophet = stock_test.reset_index().rename(columns = {'Date':'ds', 'High':'y'})
+#     stock_test_prophet['ds'] = stock_test_prophet['ds'].dt.tz_localize(None)
+#     model.fit(stock_train_prophet)
+# #     forecast = model.predict(stock_test_prophet)
+#     future = model.make_future_dataframe(periods=365*24, freq='h',include_history=False)
+#     forecast = model.predict(future)
+#     history_fig = px.line(forecast, x=forecast['ds'], y='yhat')
 
     
 #     history_fig.add_scatter(x=stock_train.index, y=stock_train['High'], mode='lines', name = 'train')
@@ -567,7 +593,7 @@ def graph(selected_dropdown_value,value,alert_permission, alert_value):
     else:
         None
     
-    return candle_graph,f'\nDays to plot: {value}.',history_fig, financial_plot
+    return candle_graph,f'\nDays to plot: {value}.', financial_plot
 
     
     
